@@ -1,25 +1,223 @@
 ---
 title: "Reproducible Research: Peer Assessment 1"
 output: 
-  html_document:
-    keep_md: true
+  html_document: 
+    keep_md: yes
 ---
 
 
 ## Loading and preprocessing the data
 
+First, loading the zip file and unziping it, then reading the csv data file: 
+
+```{r loading, warning=FALSE , message=F}
+
+if (!file.exists("raw_data.zip")){
+  print("loading the zip file............... ")
+  fileURL <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip"
+  download.file(fileURL, "raw_data.zip", method="curl")
+}  
+if (!file.exists("activity.csv")) { 
+  print("unziping the data...................")
+  unzip("raw_data.zip") 
+}
+
+library(readr)
+activity_full <- read_csv("activity.csv")
+library(knitr)
+kable(head(activity_full), align='c')
+```
+
+Second, processing the data; I delete the lines with NA values:
+
+```{r pressure}
+activity <- activity_full[ !is.na(activity_full$steps),]
+kable( head(activity), align='c' )
+```
+
+
+
+
 
 
 ## What is mean total number of steps taken per day?
 
+I calcute down below the total number of steps taken per day:
+
+```{r}
+activity_sum <- aggregate(steps~date, data=activity, sum)
+head(activity_sum)
+```
+
+Then I plot the histogram of the total number of steps taken each day
+
+
+```{r histogram, warning=F}
+library(ggplot2)
+qplot(steps, data = activity_sum, bins=50)
+```
+
+
+The next step is to calculate the mean and median of the total number of steps taken per day
+
+```{r}
+mean_steps <- mean(activity_sum$steps)
+median_steps <- round(median(activity_sum$steps),2)
+
+```
+The mean of total steps is `r mean_steps`, and their median is `r median_steps`.
+
+
+```{r}
+averages1 <- c( round( mean(activity_sum$steps), 2), round( median(activity_sum$steps), 2))
+averages1
+
+```
+The mean of total steps is **10766.19** and their median is **10765**.
+
+
+```{r mean_and_median, eval=FALSE, echo=F, results='hide'}
+activity_mean <- aggregate(steps~date, data=activity, mean)
+activity_median <- aggregate(steps~date, data=activity, median)
+activity_mean
+library(knitr)
+kable(activity_mean, digits=2, align='c', padding=2)
+qplot(date, steps, data = activity_mean, )
+p1 <- ggplot(data=activity_mean, aes(x=date, y=steps)) +
+      geom_bar(stat="identity", fill="steelblue")+
+      ggtitle("Mean of steps taken each day") +
+      theme_minimal()
+p1
+```
+
+
+
+
+
+
+
+  
+    
+      
+       
 
 
 ## What is the average daily activity pattern?
+
+We need to plot the average daily activity pattern corresponding to each 5-minute interval: (the average calculated using the mean function)
+
+```{r}
+interval_avrg <- aggregate(steps~interval, data=activity, mean)
+p1 <- ggplot(data=interval_avrg, aes(x=interval, y=steps)) +
+      geom_line()+
+      ggtitle("The average daily activity pattern") +
+      xlab(" 5-minute intervals") + ylab("average steps")+
+      theme_minimal()
+p1
+```
+
+Let's get the 5-minute interval which, on average across all the days in the dataset, contains the maximum number of steps:
+
+```{r}
+int_max <- interval_avrg[which.max(interval_avrg$steps),]
+kable(int_max, digits=2, align='c')
+```
+  
+It's the `r int_max[1,1]` 5-minute interval!
+
+
+
 
 
 
 ## Imputing missing values
 
+We'll calculate the number of rows that contains NA's values. To do so, we can use the summary function:
 
 
-## Are there differences in activity patterns between weekdays and weekends?
+```{r}
+kable(summary(activity_full), align='c')
+```
+
+It's only the `steps` column that has missing value and it has **2304** missing rows.   
+  
+  
+  Since many rows from the first day are missing, my strategy to replace the NAs will be to use the mean of the corresponding 5-minutes-interval across all the days.
+  The dataframe `activity_fill_na` is a copy of the original full raw data, but is going to be modified in order to replace the NA values from the `steps` column:
+
+
+
+
+```{r}
+nrows <- dim(activity_full)[1]
+activity_fill_na <- data.frame(activity_full)
+for( i in 1:nrows){
+  if ( is.na(activity_fill_na$steps[i])){
+    index_mean_intrvl <- which(interval_avrg$interval==activity_fill_na$interval[i])
+    activity_fill_na$steps[i] <- interval_avrg$steps[index_mean_intrvl]
+  }
+}
+kable( head(activity_fill_na, 10), align='c')
+
+```
+
+Now let's plot a histogram of the total number of steps taken each day:
+
+
+
+
+```{r}
+activity_sum2 <- aggregate(steps~date, data=activity_fill_na, sum)
+qplot(steps, data = activity_sum2, bins=50)
+
+```
+
+
+```{r}
+averages2 <- c( round( mean(activity_sum2$steps), 2), round( median(activity_sum2$steps), 2))
+averages2
+
+```
+The mean of total steps is **10766.19** and their median is **10766.19**.  
+
+**Comparison:** The value of the mean is the same before and after imputing missing values, while the median changed and became equal to the mean. 
+
+
+## Are there differences in activity patterns between weekdays and weekends?  
+For this part I use the dataset with the filled-in missing values and create a new factor variable `days` in the dataset with two levels – “weekday” and “weekend” indicating whether a given date is a weekday or weekend day.  
+Note that in my r version, the language is french, and so I had to use the french translation for the weekdays.
+
+
+
+```{r}
+weekdays_FR <- c("lundi", "mardi", "mercredi", "jeudi", "vendredi")
+activity_fill_na$days <- factor(ifelse(weekdays(activity_fill_na$date) %in% weekdays_FR, "weekday", "weekend")) 
+
+```
+
+
+Now I create two ggplots each one corresponding to weekdays or weekends, and then plotting them together using the `ggarrange` function from the `ggpubr` package:
+
+
+
+```{r, warning=F, message=F}
+activity_wkdays <- subset(activity_fill_na, days=='weekday')
+interval_avrg_wkdays <- aggregate(steps~interval, data=activity_wkdays, mean)
+pwd <- ggplot(data=interval_avrg_wkdays, aes(x=interval, y=steps)) +
+      geom_line()+
+      ggtitle("The average daily activity pattern\n through weekdays") +
+      xlab(" 5-minute intervals") + ylab("average steps")+
+      theme_minimal()
+
+activity_wkends <- subset(activity_fill_na, days=='weekend')
+interval_avrg_wkends <- aggregate(steps~interval, data=activity_wkends, mean)
+pwe <- ggplot(data=interval_avrg_wkends, aes(x=interval, y=steps)) +
+      geom_line()+
+      ggtitle("The average daily activity pattern\n through weekends") +
+      xlab(" 5-minute intervals") + ylab("average steps")+
+      theme_minimal()
+
+library(ggpubr)
+ggarrange(pwe, pwd,nrow = 2, ncol = 1)
+```
+
